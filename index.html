@@ -114,7 +114,9 @@ kbd { font: 11px var(--f-mono); color: var(--muted); }
 .sx .empty { color: var(--muted); width: auto; font-family: var(--f-ui); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .math { font-family: var(--f-math); font-size: 18px; overflow-wrap: anywhere; }
-.math .L { color: var(--blue); } .math .R { color: var(--red); }
+.math .cB, td.cB { color: var(--blue); } .math .cR, td.cR { color: var(--red); }
+.vhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seg.small button { padding: 5px 9px; font-size: 12px; }
 .note { color: var(--muted); font-size: 13.5px; margin: 0; }
 ul.comps { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
 ul.comps li { display: flex; align-items: baseline; gap: 8px; }
@@ -136,9 +138,8 @@ table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-
 th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
 td { padding: 7px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; white-space: nowrap; }
 td.k { color: var(--muted); }
-td.L, td.R { font-family: var(--f-math); font-size: 16px; }
-td.L { color: var(--blue); } td.R { color: var(--red); }
-td.L b, td.R b { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+td.cB, td.cR { font-family: var(--f-math); font-size: 16px; }
+td.cB b, td.cR b { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 td.v { font-family: var(--f-math); font-size: 18px; font-weight: 500; }
 td.v.pos { color: var(--blue); } td.v.neg { color: var(--red); }
 td.why { color: var(--muted); white-space: normal; min-width: 17em; }
@@ -204,7 +205,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <section class="derive" aria-labelledby="derive-h">
         <div class="dhead">
           <h2 id="derive-h">A stalk by the simplicity rule</h2>
-          <p class="note">Pick a stalk from the board or type one, ground edge first (B = blue, R = red). Cutting edge j of a stalk removes everything above it and leaves the first j − 1 edges. So row k's options are values already found in the rows above, and its value is the simplest number strictly between Blue's best option and Red's best option. Best options are underlined.</p>
+          <p class="note">Pick a stalk from the board or type one, ground edge first (B = blue, R = red). Cutting edge j of a stalk removes everything above it and leaves the first j − 1 edges. So row k's options are values already found in the rows above, and its value is the simplest number strictly between Left's best option and Right's best option. Left is whichever color counts as positive. Best options are underlined.</p>
         </div>
         <div class="row">
           <select id="stalksel" aria-label="Stalk from the board"></select>
@@ -217,7 +218,13 @@ tbody tr:last-child td { border-bottom: 0; }
 
     <aside class="panel">
       <section>
-        <p class="eyebrow">Value</p>
+        <div class="vhead">
+          <p class="eyebrow">Value</p>
+          <div class="seg small" role="group" aria-label="Which player counts as positive">
+            <button data-pos="B" aria-pressed="true"><span class="sw B"></span>Blue +</button>
+            <button data-pos="R" aria-pressed="false"><span class="sw R"></span>Red +</button>
+          </div>
+        </div>
         <div class="bigval" id="bigval"></div>
         <div class="meta" id="meta"></div>
         <div class="outcome" id="outcome"></div>
@@ -237,14 +244,14 @@ tbody tr:last-child td { border-bottom: 0; }
       <section>
         <p class="eyebrow">Sign expansion</p>
         <div class="sx" id="sx"></div>
-        <p class="note">The same value as a single stalk, read from the ground up: + is blue, − is red.</p>
+        <p class="note" id="sxnote"></p>
         <div class="row">
           <button class="btn" id="addpos">Add as a stalk</button>
           <button class="btn" id="addneg">Add the negative</button>
         </div>
       </section>
       <section>
-        <p class="rules">Blue (Left) cuts blue edges, Red (Right) cuts red edges. Anything no longer connected to the ground is removed. A player with no move loses.</p>
+        <p class="rules" id="rules"></p>
       </section>
     </aside>
   </div>
@@ -361,7 +368,13 @@ function signExpansion(x) {
   }
   return x < 0 ? out.map((s) => (s === "+" ? "-" : "+")) : out;
 }
-const signCls = (x) => (x > 0 ? "pos" : x < 0 ? "neg" : "zero");
+const signCls = (x) => (x > 0 ? "pos" : x < 0 ? "neg" : "zero"); // takes an engine value: pos = Blue wins
+// The engine always scores Blue as Left. POS picks which color is shown as positive (Left) on the page.
+let POS = "B";
+const OTHER = () => (POS === "B" ? "R" : "B");
+const NAME = { B: "Blue", R: "Red" };
+const D = (x) => (x === 0 ? 0 : POS === "B" ? x : -x);           // engine value -> displayed value
+const tint = (d) => (d === 0 ? "zero" : (d > 0) === (POS === "B") ? "pos" : "neg"); // displayed value -> winner color
 
 /* ---------- evaluation ---------- */
 function evaluate() {
@@ -385,7 +398,7 @@ function evaluate() {
 /* ---------- state ---------- */
 function snapshot() { hist.push(JSON.stringify(S)); if (hist.length > 150) hist.shift(); }
 function undo() { if (!hist.length) return; S = JSON.parse(hist.pop()); afterChange(); }
-function save() { try { localStorage.setItem(STORE, JSON.stringify({ S, NEXT })); } catch (e) {} }
+function save() { try { localStorage.setItem(STORE, JSON.stringify({ S, NEXT, POS })); } catch (e) {} }
 function pruneVerts() {
   const used = new Set();
   for (const id in S.e) { used.add(S.e[id].a); used.add(S.e[id].b); }
@@ -509,7 +522,7 @@ function render() {
         const v = S.v[vid]; minY = Math.min(minY, v.y); sx += v.x; n++;
       }
       const x = sx / n, y = Math.max(28, minY - 22);
-      const t = fmt(p.v);
+      const t = fmt(D(p.v));
       const w = t.length * 9.5;
       lh += `<circle class="cdot ${signCls(p.v)}" cx="${x - w / 2 - 9}" cy="${y - 6}" r="5.5"/><text class="lbl" x="${x - w / 2}" y="${y}">${t}</text>`;
     }
@@ -536,9 +549,9 @@ function panel() {
     $("addpos").disabled = $("addneg").disabled = true;
     return;
   }
-  const v = R.total;
+  const rv = R.total, v = D(rv);
   const bv = $("bigval");
-  bv.className = "bigval " + signCls(v);
+  bv.className = "bigval " + signCls(rv);
   bv.innerHTML = bigHTML(v);
   const sx = signExpansion(v);
   const { n, k } = parts(Math.abs(v));
@@ -546,32 +559,33 @@ function panel() {
   $("meta").innerHTML = k > 0
     ? `<span class="m">${v < 0 ? MINUS : ""}${n}/2<sup>${k}</sup></span> · ${v < 0 ? MINUS : ""}${Math.abs(v).toFixed(k)} · ${day}`
     : (v === 0 ? `${day}` : `integer · ${day}`);
-  const oc = v > 0 ? ["pos", "Blue wins", "moving first or second."]
-    : v < 0 ? ["neg", "Red wins", "moving first or second."]
+  const oc = rv > 0 ? ["pos", "Blue wins", "moving first or second."]
+    : rv < 0 ? ["neg", "Red wins", "moving first or second."]
     : ["zero", "Second player wins", empty ? "The board is empty, so whoever moves first has no move." : "Whoever moves first loses."];
   $("outcome").innerHTML = `<span class="chip ${oc[0]}">${oc[1]}</span><span>${oc[2]}</span>`;
 
   const uniq = (a, dir) => [...new Set(a)].sort((x, y) => dir * (x - y));
-  const L = uniq(R.Lo, -1), Rr = uniq(R.Ro, 1);
-  $("opts").innerHTML = `{ <span class="L">${L.map(fmt).join(", ")}</span> | <span class="R">${Rr.map(fmt).join(", ")}</span> }`;
+  const leftRaw = POS === "B" ? R.Lo : R.Ro, rightRaw = POS === "B" ? R.Ro : R.Lo;
+  const L = uniq(leftRaw.map(D), -1), Rr = uniq(rightRaw.map(D), 1);
+  $("opts").innerHTML = `{ <span class="c${POS}">${L.map(fmt).join(", ")}</span> | <span class="c${OTHER()}">${Rr.map(fmt).join(", ")}</span> }`;
   const lo = L.length ? L[0] : -Infinity, hi = Rr.length ? Rr[0] : Infinity;
   $("optsnote").textContent = empty
     ? "No moves for either player, so this is { | } = 0."
-    : `Blue's best move leads to ${fmt(lo)}, Red's to ${fmt(hi)}. The simplest number strictly between them is ${fmt(v)}.`;
+    : `${NAME[POS]}'s best move leads to ${fmt(lo)}, ${NAME[OTHER()]}'s to ${fmt(hi)}. The simplest number strictly between them is ${fmt(v)}.`;
 
   $("comps").innerHTML = R.pieces.length
-    ? R.pieces.map((p) => `<li><span class="d ${signCls(p.v)}"></span><span class="v">${fmt(p.v)}</span><span class="n">${p.ids.length} edge${p.ids.length > 1 ? "s" : ""}</span></li>`).join("")
+    ? R.pieces.map((p) => `<li><span class="d ${signCls(p.v)}"></span><span class="v">${fmt(D(p.v))}</span><span class="n">${p.ids.length} edge${p.ids.length > 1 ? "s" : ""}</span></li>`).join("")
     : `<li class="n">Nothing touches the ground yet.</li>`;
   $("sum").innerHTML = R.pieces.length > 1
-    ? R.pieces.map((p, i) => (i === 0 ? fmt(p.v) : p.v < 0 ? ` ${MINUS} ${fmt(-p.v)}` : ` + ${fmt(p.v)}`)).join("") + ` = ${fmt(v)}`
+    ? R.pieces.map((p, i) => { const d = D(p.v); return i === 0 ? fmt(d) : d < 0 ? ` ${MINUS} ${fmt(-d)}` : ` + ${fmt(d)}`; }).join("") + ` = ${fmt(v)}`
     : "";
   $("floatnote").hidden = !R.floating;
   $("floatnote").textContent = `${R.floating} edge${R.floating > 1 ? "s" : ""} not connected to the ground ${R.floating > 1 ? "are" : "is"} drawn dashed and left out of the game.`;
 
   $("sx").innerHTML = sx.length
-    ? sx.map((s) => `<span class="${s === "+" ? "B" : "R"}">${s === "+" ? "+" : MINUS}</span>`).join("")
+    ? sx.map((s) => `<span class="${s === "+" ? POS : OTHER()}">${s === "+" ? "+" : MINUS}</span>`).join("")
     : `<span class="empty">empty (the zero game)</span>`;
-  $("addpos").disabled = $("addneg").disabled = v === 0;
+  $("addpos").disabled = $("addneg").disabled = rv === 0;
 }
 
 /* ---------- stalk derivation ---------- */
@@ -604,7 +618,7 @@ function boardStalks() {
 function refreshStalkSel() {
   const list = boardStalks(), sel = $("stalksel");
   sel.innerHTML = (list.length ? `<option value="">Stalks on the board…</option>` : `<option value="">No stalks on the board</option>`) +
-    list.map((s, i) => `<option value="${s.colors}">#${i + 1}: ${[...s.colors].join(" ")} = ${fmt(s.v)}</option>`).join("");
+    list.map((s, i) => `<option value="${s.colors}">#${i + 1}: ${[...s.colors].join(" ")} = ${fmt(D(s.v))}</option>`).join("");
   sel.disabled = !list.length;
 }
 
@@ -623,26 +637,26 @@ function derive() {
     $("dcheck").textContent = "Type a stalk using B and R, starting from the ground.";
     return;
   }
-  const chips = (str) => `<span class="sx sm">${[...str].map((c) => `<span class="${c}">${c === "B" ? "+" : MINUS}</span>`).join("")}</span>`;
+  const chips = (str) => `<span class="sx sm">${[...str].map((c) => `<span class="${c}">${c === POS ? "+" : MINUS}</span>`).join("")}</span>`;
   const list = (vals, best) => vals.length
     ? [...new Set(vals)].sort((x, y) => x - y).map((x) => (x === best ? `<b>${fmt(x)}</b>` : fmt(x))).join(", ")
     : "none";
   const v = [0];
-  let rows = `<tr><td class="k">0</td><td><span class="note">ground only</span></td><td class="L">none</td><td class="R">none</td><td class="v">0</td><td class="why">${why(-Infinity, Infinity, 0)}</td></tr>`;
+  let rows = `<tr><td class="k">0</td><td><span class="note">ground only</span></td><td class="c${POS}">none</td><td class="c${OTHER()}">none</td><td class="v">0</td><td class="why">${why(-Infinity, Infinity, 0)}</td></tr>`;
   for (let k = 1; k <= s.length; k++) {
     const L = [], Rr = [];
-    for (let j = 1; j <= k; j++) (s[j - 1] === "B" ? L : Rr).push(v[j - 1]);
+    for (let j = 1; j <= k; j++) (s[j - 1] === POS ? L : Rr).push(v[j - 1]);
     const a = L.length ? Math.max(...L) : -Infinity, b = Rr.length ? Math.min(...Rr) : Infinity;
     v[k] = simplest(a, b);
-    rows += `<tr><td class="k">${k}</td><td>${chips(s.slice(0, k))}</td><td class="L">${list(L, a)}</td><td class="R">${list(Rr, b)}</td><td class="v ${signCls(v[k])}">${fmt(v[k])}</td><td class="why">${why(a, b, v[k])}</td></tr>`;
+    rows += `<tr><td class="k">${k}</td><td>${chips(s.slice(0, k))}</td><td class="c${POS}">${list(L, a)}</td><td class="c${OTHER()}">${list(Rr, b)}</td><td class="v ${tint(v[k])}">${fmt(v[k])}</td><td class="why">${why(a, b, v[k])}</td></tr>`;
   }
-  $("dtable").innerHTML = `<thead><tr><th>k</th><th>First k edges</th><th>Blue cuts to</th><th>Red cuts to</th><th>Value</th><th>Simplest number in (best Blue, best Red)</th></tr></thead><tbody>${rows}</tbody>`;
+  $("dtable").innerHTML = `<thead><tr><th>k</th><th>First k edges</th><th>${NAME[POS]} (Left) cuts to</th><th>${NAME[OTHER()]} (Right) cuts to</th><th>Value</th><th>Simplest number in (best Left, best Right)</th></tr></thead><tbody>${rows}</tbody>`;
 
   // Berlekamp's rule as an independent check: ±1 per edge until the color first changes, then ±1/2, ±1/4, ...
   const terms = [];
   let i = 0, w = 1;
-  while (i < s.length && s[i] === s[0]) { terms.push(s[i] === "B" ? 1 : -1); i++; }
-  for (; i < s.length; i++) { w /= 2; terms.push(s[i] === "B" ? w : -w); }
+  while (i < s.length && s[i] === s[0]) { terms.push(s[i] === POS ? 1 : -1); i++; }
+  for (; i < s.length; i++) { w /= 2; terms.push(s[i] === POS ? w : -w); }
   const sum = terms.reduce((p, q) => p + q, 0);
   const expr = terms.map((t, n) => (n === 0 ? fmt(t) : t < 0 ? ` ${MINUS} ${fmt(-t)}` : ` + ${fmt(t)}`)).join("");
   $("dcheck").innerHTML = `Check with Berlekamp's rule (±1 per edge until the color first changes, then ±1/2, ±1/4, …): <span class="math">${expr} = ${fmt(sum)}</span>${sum === v[s.length] ? ", which matches the last row." : ", which does not match the table."}`;
@@ -652,6 +666,17 @@ $("stalksel").addEventListener("change", (e) => { if (e.target.value) { $("stalk
 $("stalkin").addEventListener("input", derive);
 
 function afterChange() { save(); R = evaluate(); render(); panel(); refreshStalkSel(); }
+
+function setPos(c) {
+  POS = c;
+  document.querySelectorAll("button[data-pos]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.pos === c));
+  const p = NAME[POS], o = NAME[OTHER()];
+  $("sxnote").textContent = `The same value as a single stalk, read from the ground up: + is ${p.toLowerCase()}, ${MINUS} is ${o.toLowerCase()}.`;
+  $("rules").textContent = `${p} (Left, positive) cuts ${p.toLowerCase()} edges. ${o} (Right, negative) cuts ${o.toLowerCase()} edges. Anything no longer connected to the ground is removed. A player with no move loses.`;
+}
+document.querySelectorAll("button[data-pos]").forEach((b) => b.addEventListener("click", () => {
+  setPos(b.dataset.pos); save(); render(); panel(); refreshStalkSel(); derive();
+}));
 
 /* ---------- input ---------- */
 const HINTS = {
@@ -729,7 +754,7 @@ svg.addEventListener("pointermove", (ev) => {
     if (id !== hoverEdge) { hoverEdge = id; render(); }
     if (id !== null && R && !R.tooBig && R.g.includes(id)) {
       let v; try { budget = 0; v = value(R.g.filter((x) => x !== id)); } catch (e) { v = NaN; }
-      tip.textContent = `${S.e[id].c === "B" ? "Blue" : "Red"} cuts → ${fmt(v)}`;
+      tip.textContent = `${S.e[id].c === "B" ? "Blue" : "Red"} cuts → ${fmt(D(v))}`;
       const tx = p.x > W - 200 ? p.x - 190 : p.x + 16;
       tip.setAttribute("x", tx); tip.setAttribute("y", Math.max(22, p.y - 14));
       tip.setAttribute("visibility", "visible");
@@ -781,10 +806,12 @@ document.addEventListener("keydown", (e) => {
     const raw = localStorage.getItem(STORE);
     if (raw) {
       const d = JSON.parse(raw);
-      if (d && d.S && d.S.v && d.S.e) { S = d.S; NEXT = Math.max(d.NEXT || 1, ...Object.keys(S.v).map(Number), ...Object.keys(S.e).map(Number), 0) + 1; loaded = true; }
+      if (d && d.S && d.S.v && d.S.e) { S = d.S; if (d.POS === "R") POS = "R";
+        NEXT = Math.max(d.NEXT || 1, ...Object.keys(S.v).map(Number), ...Object.keys(S.e).map(Number), 0) + 1; loaded = true; }
     }
   } catch (e) {}
   if (!loaded) S = build(PRESETS.scene());
+  setPos(POS);
   setMode("draw");
   afterChange();
   const first = boardStalks()[0];
