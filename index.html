@@ -124,6 +124,28 @@ ul.comps .v { font-family: var(--f-math); font-size: 18px; min-width: 3.5em; }
 ul.comps .n { color: var(--muted); font-size: 13px; }
 .warn { color: var(--red); font-size: 13.5px; margin: 0; }
 .rules { font-size: 13px; color: var(--muted); margin: 0; }
+
+.derive { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; display: grid; gap: 12px; margin-top: 6px; min-width: 0; }
+.dhead { display: grid; gap: 4px; }
+h2 { font-family: var(--f-math); font-weight: 500; font-size: 23px; line-height: 1.2; margin: 0; text-wrap: balance; }
+.dhead .note { max-width: 72ch; }
+#stalkin { font: 500 14px/1 var(--f-mono); letter-spacing: .14em; border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; background: var(--sheet); color: var(--ink); width: 18ch; max-width: 100%; }
+#stalkin:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.tablewrap { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; white-space: nowrap; }
+td.k { color: var(--muted); }
+td.L, td.R { font-family: var(--f-math); font-size: 16px; }
+td.L { color: var(--blue); } td.R { color: var(--red); }
+td.L b, td.R b { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+td.v { font-family: var(--f-math); font-size: 18px; font-weight: 500; }
+td.v.pos { color: var(--blue); } td.v.neg { color: var(--red); }
+td.why { color: var(--muted); white-space: normal; min-width: 17em; }
+tbody tr:last-child td { border-bottom: 0; }
+.sx.sm span { width: 18px; height: 18px; font-size: 11px; }
+.check { font-size: 14px; margin: 0; }
+.check .math { font-size: 17px; }
 </style>
 
 <div class="wrap">
@@ -178,6 +200,19 @@ ul.comps .n { color: var(--muted); font-size: 13px; }
         </svg>
       </div>
       <p class="hint" id="hint"></p>
+
+      <section class="derive" aria-labelledby="derive-h">
+        <div class="dhead">
+          <h2 id="derive-h">A stalk by the simplicity rule</h2>
+          <p class="note">Pick a stalk from the board or type one, ground edge first (B = blue, R = red). Cutting edge j of a stalk removes everything above it and leaves the first j − 1 edges. So row k's options are values already found in the rows above, and its value is the simplest number strictly between Blue's best option and Red's best option. Best options are underlined.</p>
+        </div>
+        <div class="row">
+          <select id="stalksel" aria-label="Stalk from the board"></select>
+          <input id="stalkin" type="text" spellcheck="false" autocomplete="off" autocapitalize="characters" maxlength="30" aria-label="Stalk colors, ground edge first">
+        </div>
+        <div class="tablewrap"><table id="dtable"></table></div>
+        <p class="check" id="dcheck"></p>
+      </section>
     </section>
 
     <aside class="panel">
@@ -539,7 +574,84 @@ function panel() {
   $("addpos").disabled = $("addneg").disabled = v === 0;
 }
 
-function afterChange() { save(); R = evaluate(); render(); panel(); }
+/* ---------- stalk derivation ---------- */
+// Colors of a piece read from the ground up, or null if the piece is not a single stalk.
+function stalkColors(ids) {
+  const isG = (n) => n === "G";
+  const base = ids.filter((id) => isG(node(S.e[id].a)) || isG(node(S.e[id].b)));
+  if (base.length !== 1) return null;
+  const e0 = S.e[base[0]];
+  if (isG(node(e0.a)) && isG(node(e0.b))) return null;
+  const deg = new Map();
+  for (const id of ids) for (const n of [node(S.e[id].a), node(S.e[id].b)]) if (!isG(n)) deg.set(n, (deg.get(n) || 0) + 1);
+  if (deg.size !== ids.length || [...deg.values()].some((d) => d > 2)) return null;
+  let cur = isG(node(e0.a)) ? node(e0.b) : node(e0.a), out = e0.c;
+  const used = new Set(base);
+  while (used.size < ids.length) {
+    const nx = ids.find((id) => !used.has(id) && (node(S.e[id].a) === cur || node(S.e[id].b) === cur));
+    if (nx === undefined) return null;
+    used.add(nx); out += S.e[nx].c;
+    cur = node(S.e[nx].a) === cur ? node(S.e[nx].b) : node(S.e[nx].a);
+  }
+  return { colors: out, x: S.v[isG(node(e0.a)) ? e0.a : e0.b].x };
+}
+
+function boardStalks() {
+  if (!R || R.tooBig) return [];
+  return R.pieces.map((p) => ({ ...stalkColors(p.ids), v: p.v })).filter((s) => s.colors).sort((a, b) => a.x - b.x);
+}
+
+function refreshStalkSel() {
+  const list = boardStalks(), sel = $("stalksel");
+  sel.innerHTML = (list.length ? `<option value="">Stalks on the board…</option>` : `<option value="">No stalks on the board</option>`) +
+    list.map((s, i) => `<option value="${s.colors}">#${i + 1}: ${[...s.colors].join(" ")} = ${fmt(s.v)}</option>`).join("");
+  sel.disabled = !list.length;
+}
+
+function why(a, b, v) {
+  const iv = `(${fmt(a)}, ${fmt(b)})`;
+  if (a === -Infinity && b === Infinity) return "No moves for either player: { | } = 0.";
+  if (a < 0 && b > 0) return `0 lies in ${iv}, and 0 is the simplest number.`;
+  if (Number.isInteger(v)) return a >= 0 ? `${fmt(v)} is the first integer above ${fmt(a)}.` : `${fmt(v)} is the first integer below ${fmt(b)}.`;
+  return `No integer lies in ${iv}. The smallest denominator with a fraction inside is ${parts(Math.abs(v)).d}.`;
+}
+
+function derive() {
+  const s = $("stalkin").value.toUpperCase().replace(/[^BR]/g, "");
+  if (!s) {
+    $("dtable").innerHTML = "";
+    $("dcheck").textContent = "Type a stalk using B and R, starting from the ground.";
+    return;
+  }
+  const chips = (str) => `<span class="sx sm">${[...str].map((c) => `<span class="${c}">${c === "B" ? "+" : MINUS}</span>`).join("")}</span>`;
+  const list = (vals, best) => vals.length
+    ? [...new Set(vals)].sort((x, y) => x - y).map((x) => (x === best ? `<b>${fmt(x)}</b>` : fmt(x))).join(", ")
+    : "none";
+  const v = [0];
+  let rows = `<tr><td class="k">0</td><td><span class="note">ground only</span></td><td class="L">none</td><td class="R">none</td><td class="v">0</td><td class="why">${why(-Infinity, Infinity, 0)}</td></tr>`;
+  for (let k = 1; k <= s.length; k++) {
+    const L = [], Rr = [];
+    for (let j = 1; j <= k; j++) (s[j - 1] === "B" ? L : Rr).push(v[j - 1]);
+    const a = L.length ? Math.max(...L) : -Infinity, b = Rr.length ? Math.min(...Rr) : Infinity;
+    v[k] = simplest(a, b);
+    rows += `<tr><td class="k">${k}</td><td>${chips(s.slice(0, k))}</td><td class="L">${list(L, a)}</td><td class="R">${list(Rr, b)}</td><td class="v ${signCls(v[k])}">${fmt(v[k])}</td><td class="why">${why(a, b, v[k])}</td></tr>`;
+  }
+  $("dtable").innerHTML = `<thead><tr><th>k</th><th>First k edges</th><th>Blue cuts to</th><th>Red cuts to</th><th>Value</th><th>Simplest number in (best Blue, best Red)</th></tr></thead><tbody>${rows}</tbody>`;
+
+  // Berlekamp's rule as an independent check: ±1 per edge until the color first changes, then ±1/2, ±1/4, ...
+  const terms = [];
+  let i = 0, w = 1;
+  while (i < s.length && s[i] === s[0]) { terms.push(s[i] === "B" ? 1 : -1); i++; }
+  for (; i < s.length; i++) { w /= 2; terms.push(s[i] === "B" ? w : -w); }
+  const sum = terms.reduce((p, q) => p + q, 0);
+  const expr = terms.map((t, n) => (n === 0 ? fmt(t) : t < 0 ? ` ${MINUS} ${fmt(-t)}` : ` + ${fmt(t)}`)).join("");
+  $("dcheck").innerHTML = `Check with Berlekamp's rule (±1 per edge until the color first changes, then ±1/2, ±1/4, …): <span class="math">${expr} = ${fmt(sum)}</span>${sum === v[s.length] ? ", which matches the last row." : ", which does not match the table."}`;
+}
+
+$("stalksel").addEventListener("change", (e) => { if (e.target.value) { $("stalkin").value = e.target.value; derive(); } e.target.value = ""; });
+$("stalkin").addEventListener("input", derive);
+
+function afterChange() { save(); R = evaluate(); render(); panel(); refreshStalkSel(); }
 
 /* ---------- input ---------- */
 const HINTS = {
@@ -675,6 +787,9 @@ document.addEventListener("keydown", (e) => {
   if (!loaded) S = build(PRESETS.scene());
   setMode("draw");
   afterChange();
+  const first = boardStalks()[0];
+  $("stalkin").value = first ? first.colors : "BBRB";
+  derive();
 })();
 </script>
 
