@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font: 14px system-ui, -apple-system, sans-serif; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>Hackenbush Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=STIX+Two+Text:wght@400;500&display=swap">
+<style>
+/* Layout: graph-paper board on the left, value ledger on the right; stacks on phones. */
+:root {
+  --paper: #f3f5f8;
+  --sheet: #ffffff;
+  --ink: #1a2230;
+  --muted: #5b6878;
+  --grid: #e1e6ed;
+  --rule: #d2d9e2;
+  --blue: #1d52d0;
+  --red: #cf3427;
+  --earth: #9a8f80;
+  --f-math: "STIX Two Text", "Cambria Math", Georgia, serif;
+  --f-ui: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #11151b; --sheet: #191f28; --ink: #e5eaf1; --muted: #93a0b1;
+    --grid: #1d242e; --rule: #2a3340; --blue: #6f9cff; --red: #ff7565; --earth: #6c6458;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #11151b; --sheet: #191f28; --ink: #e5eaf1; --muted: #93a0b1;
+  --grid: #1d242e; --rule: #2a3340; --blue: #6f9cff; --red: #ff7565; --earth: #6c6458;
+  color-scheme: dark;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1220px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 40px; }
+header { display: grid; gap: 4px; margin-bottom: 18px; }
+h1 { font-family: var(--f-math); font-weight: 500; font-size: 34px; line-height: 1.1; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { margin: 0; color: var(--muted); max-width: 68ch; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; align-items: start; }
+@media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.boardcol { display: grid; gap: 10px; min-width: 0; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--sheet); }
+.seg button, .btn, select {
+  font: 500 13px/1 var(--f-ui); color: var(--ink); background: var(--sheet);
+  border: 0; padding: 8px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.btn, select { border: 1px solid var(--rule); border-radius: 6px; }
+.btn:disabled { opacity: .45; cursor: default; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.sw.B { background: var(--blue); } .sw.R { background: var(--red); }
+kbd { font: 11px var(--f-mono); color: var(--muted); }
+.seg button[aria-pressed="true"] kbd { color: inherit; opacity: .7; }
+.spacer { flex: 1; }
+
+.board { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--sheet); }
+#svg { display: block; width: 100%; height: auto; aspect-ratio: 900 / 520; touch-action: none; user-select: none; -webkit-user-select: none; }
+.board[data-mode="draw"] #svg { cursor: crosshair; }
+.board[data-mode="move"] #svg { cursor: grab; }
+.gridline { stroke: var(--grid); stroke-width: 1; fill: none; }
+.hatch { stroke: var(--earth); stroke-width: 1.5; }
+.groundfill { fill: var(--sheet); }
+.groundline { stroke: var(--ink); stroke-width: 3; }
+.edge { fill: none; stroke-width: 5; stroke-linecap: round; }
+.edge.B { stroke: var(--blue); } .edge.R { stroke: var(--red); }
+.edge.float { opacity: .3; stroke-dasharray: 2 9; }
+.edge.falling { opacity: .28; }
+.edge.hot { stroke-width: 8; }
+.hit { fill: none; stroke: transparent; stroke-width: 22px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.board[data-mode="chop"] .hit { pointer-events: stroke; cursor: pointer; }
+.dot { fill: var(--ink); }
+.gdot { fill: var(--ink); }
+.preview { stroke-width: 4; stroke-linecap: round; stroke-dasharray: 8 7; fill: none; }
+.preview.B { stroke: var(--blue); } .preview.R { stroke: var(--red); }
+.snapring { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.lbl { font-family: var(--f-math); font-size: 21px; fill: var(--ink); paint-order: stroke; stroke: var(--sheet); stroke-width: 5px; stroke-linejoin: round; }
+.tip { font-family: var(--f-ui); font-size: 15px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--sheet); stroke-width: 5px; stroke-linejoin: round; }
+.cdot.pos { fill: var(--blue); } .cdot.neg { fill: var(--red); } .cdot.zero { fill: var(--muted); }
+.hint { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+.panel { display: grid; gap: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; min-width: 0; }
+.panel section { padding: 16px 18px; display: grid; gap: 8px; min-width: 0; }
+.panel section + section { border-top: 1px solid var(--rule); }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.bigval { font-family: var(--f-math); font-size: 64px; line-height: 1; display: flex; align-items: center; gap: 4px; min-height: 104px; font-variant-numeric: tabular-nums; }
+.bigval.pos { color: var(--blue); } .bigval.neg { color: var(--red); }
+.bigval .sgn { font-size: .8em; margin-right: 2px; }
+.frac { display: inline-flex; flex-direction: column; align-items: center; font-size: .72em; line-height: 1.05; }
+.frac .num { border-bottom: 2px solid currentColor; padding: 0 .12em .04em; }
+.frac .den { padding: .04em .12em 0; }
+.meta { color: var(--muted); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.meta .m { font-family: var(--f-math); font-size: 16px; color: var(--ink); }
+.outcome { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1.5px solid currentColor; white-space: nowrap; }
+.chip.pos { color: var(--blue); } .chip.neg { color: var(--red); } .chip.zero { color: var(--muted); }
+.sx { display: flex; flex-wrap: wrap; gap: 3px; }
+.sx span { font: 500 13px/1 var(--f-mono); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 3px; color: var(--sheet); }
+.sx span.B { background: var(--blue); } .sx span.R { background: var(--red); }
+.sx .empty { color: var(--muted); width: auto; font-family: var(--f-ui); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+.math { font-family: var(--f-math); font-size: 18px; overflow-wrap: anywhere; }
+.math .L { color: var(--blue); } .math .R { color: var(--red); }
+.note { color: var(--muted); font-size: 13.5px; margin: 0; }
+ul.comps { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+ul.comps li { display: flex; align-items: baseline; gap: 8px; }
+ul.comps .d { width: 9px; height: 9px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+ul.comps .d.pos { background: var(--blue); } ul.comps .d.neg { background: var(--red); } ul.comps .d.zero { background: var(--muted); }
+ul.comps .v { font-family: var(--f-math); font-size: 18px; min-width: 3.5em; }
+ul.comps .n { color: var(--muted); font-size: 13px; }
+.warn { color: var(--red); font-size: 13.5px; margin: 0; }
+.rules { font-size: 13px; color: var(--muted); margin: 0; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Hackenbush Workbench</h1>
+    <p class="lede">Draw a Blue-Red Hackenbush position on the ground. Every such position is equal to a dyadic rational. Each grounded piece gets a dot and its value on the board, and the panel adds them up.</p>
+  </header>
+
+  <div class="layout">
+    <section class="boardcol">
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Mode">
+          <button id="m-draw" data-mode="draw" aria-pressed="true">Draw <kbd>D</kbd></button>
+          <button id="m-chop" data-mode="chop" aria-pressed="false">Cut <kbd>C</kbd></button>
+          <button id="m-move" data-mode="move" aria-pressed="false">Move <kbd>M</kbd></button>
+        </div>
+        <div class="seg" role="group" aria-label="Edge color">
+          <button id="c-B" data-color="B" aria-pressed="true"><span class="sw B"></span>Blue <kbd>B</kbd></button>
+          <button id="c-R" data-color="R" aria-pressed="false"><span class="sw R"></span>Red <kbd>R</kbd></button>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn" id="undo">Undo</button>
+        <button class="btn" id="clear">Clear</button>
+        <select id="preset" aria-label="Load a position">
+          <option value="">Load position…</option>
+          <option value="scene">Example scene</option>
+          <option value="halves">1/2 + 1/2 − 1 = 0</option>
+          <option value="ladder">Stalk ladder</option>
+          <option value="cycles">Cycles and arches</option>
+        </select>
+      </div>
+      <div class="board" id="board" data-mode="draw">
+        <svg id="svg" viewBox="0 0 900 520" aria-label="Hackenbush board">
+          <defs>
+            <pattern id="gridpat" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path class="gridline" d="M20 0H0V20"/>
+            </pattern>
+            <pattern id="hatchpat" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line class="hatch" x1="0" y1="0" x2="0" y2="14"/>
+            </pattern>
+          </defs>
+          <rect x="0" y="0" width="900" height="440" fill="url(#gridpat)"/>
+          <rect class="groundfill" x="0" y="440" width="900" height="80"/>
+          <rect x="0" y="440" width="900" height="80" fill="url(#hatchpat)"/>
+          <line class="groundline" x1="0" y1="440" x2="900" y2="440"/>
+          <g id="g-edges"></g>
+          <g id="g-verts"></g>
+          <g id="g-hit"></g>
+          <g id="g-labels"></g>
+          <g id="g-preview"></g>
+          <text id="tip" class="tip" visibility="hidden"></text>
+        </svg>
+      </div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <aside class="panel">
+      <section>
+        <p class="eyebrow">Value</p>
+        <div class="bigval" id="bigval"></div>
+        <div class="meta" id="meta"></div>
+        <div class="outcome" id="outcome"></div>
+        <p class="warn" id="warn" hidden></p>
+      </section>
+      <section>
+        <p class="eyebrow">Options</p>
+        <div class="math" id="opts"></div>
+        <p class="note" id="optsnote"></p>
+      </section>
+      <section>
+        <p class="eyebrow">Grounded pieces</p>
+        <ul class="comps" id="comps"></ul>
+        <div class="math" id="sum"></div>
+        <p class="note" id="floatnote" hidden></p>
+      </section>
+      <section>
+        <p class="eyebrow">Sign expansion</p>
+        <div class="sx" id="sx"></div>
+        <p class="note">The same value as a single stalk, read from the ground up: + is blue, − is red.</p>
+        <div class="row">
+          <button class="btn" id="addpos">Add as a stalk</button>
+          <button class="btn" id="addneg">Add the negative</button>
+        </div>
+      </section>
+      <section>
+        <p class="rules">Blue (Left) cuts blue edges, Red (Right) cuts red edges. Anything no longer connected to the ground is removed. A player with no move loses.</p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+const W = 900, H = 520, GY = 440;
+const MINUS = "−";
+const $ = (id) => document.getElementById(id);
+const svg = $("svg");
+const STORE = "hackenbush-workbench-v1";
+
+let S = { v: {}, e: {} };       // v: id -> {x, y, g}; e: id -> {a, b, c}
+let NEXT = 1;                    // never rewound, so an edge id always means the same edge
+let mode = "draw", color = "B";
+const hist = [];
+let hoverEdge = null, drag = null;
+let R = null;                    // last evaluation
+
+/* ---------- game engine ---------- */
+const node = (vid) => (S.v[vid].g ? "G" : vid);
+const edgeIds = () => Object.keys(S.e).map(Number);
+
+function grounded(ids) {
+  const adj = new Map();
+  const push = (n, item) => { if (!adj.has(n)) adj.set(n, []); adj.get(n).push(item); };
+  for (const id of ids) {
+    const e = S.e[id], a = node(e.a), b = node(e.b);
+    push(a, [id, b]); if (a !== b) push(b, [id, a]);
+  }
+  const seen = new Set(["G"]), keep = new Set(), st = ["G"];
+  while (st.length) {
+    const n = st.pop();
+    for (const [id, o] of adj.get(n) || []) {
+      keep.add(id);
+      if (!seen.has(o)) { seen.add(o); st.push(o); }
+    }
+  }
+  return ids.filter((id) => keep.has(id));
+}
+
+// Pieces that only meet at the ground are independent games; their values add.
+function components(ids) {
+  const par = new Map(ids.map((i) => [i, i]));
+  const find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+  const first = new Map();
+  for (const id of ids) {
+    const e = S.e[id];
+    for (const n of [node(e.a), node(e.b)]) {
+      if (n === "G") continue;
+      if (first.has(n)) par.set(find(id), find(first.get(n))); else first.set(n, id);
+    }
+  }
+  const groups = new Map();
+  for (const id of ids) { const r = find(id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(id); }
+  return [...groups.values()].map((c) => c.sort((x, y) => x - y));
+}
+
+const memo = new Map();
+const LIMIT = 120000;
+let budget = 0;
+class TooBig extends Error {}
+
+function value(ids) {
+  let s = 0;
+  for (const c of components(grounded(ids))) s += evalPiece(c);
+  return s;
+}
+
+function evalPiece(c) {
+  const key = c.join(",");
+  const hit = memo.get(key);
+  if (hit !== undefined) return hit;
+  if (++budget > LIMIT) throw new TooBig();
+  let L = -Infinity, Rt = Infinity;
+  for (let i = 0; i < c.length; i++) {
+    const v = value(c.slice(0, i).concat(c.slice(i + 1)));
+    if (S.e[c[i]].c === "B") { if (v > L) L = v; } else { if (v < Rt) Rt = v; }
+  }
+  const r = simplest(L, Rt);
+  memo.set(key, r);
+  return r;
+}
+
+// Simplest number strictly between a and b (a < b; either may be infinite).
+function simplest(a, b) {
+  if (!(a < b)) return NaN;
+  if (a < 0 && b > 0) return 0;
+  if (a >= 0) { const n = Math.floor(a) + 1; if (n < b) return n; }
+  else { const n = Math.ceil(b) - 1; if (n > a) return n; }
+  for (let d = 0.5; d > 1e-15; d /= 2) {
+    const m = Math.floor(a / d) + 1;
+    if (m * d < b) return m * d;
+  }
+  return NaN;
+}
+
+/* ---------- dyadic formatting ---------- */
+function parts(x) { let k = 0; while (!Number.isInteger(x * 2 ** k) && k < 60) k++; return { n: x * 2 ** k, k, d: 2 ** k }; }
+function fmt(x) {
+  if (x === Infinity) return "∞";
+  if (x === -Infinity) return MINUS + "∞";
+  if (Number.isNaN(x)) return "?";
+  const { n, d } = parts(Math.abs(x));
+  const s = x < 0 ? MINUS : "";
+  return d === 1 ? s + n : `${s}${n}/${d}`;
+}
+function signExpansion(x) {
+  const t = Math.abs(x), out = [];
+  let cur = 0;
+  while (cur < t) { out.push("+"); cur++; }
+  for (let d = 0.5; cur !== t; d /= 2) {
+    if (t > cur) { out.push("+"); cur += d; } else { out.push("-"); cur -= d; }
+  }
+  return x < 0 ? out.map((s) => (s === "+" ? "-" : "+")) : out;
+}
+const signCls = (x) => (x > 0 ? "pos" : x < 0 ? "neg" : "zero");
+
+/* ---------- evaluation ---------- */
+function evaluate() {
+  const all = edgeIds();
+  const g = grounded(all);
+  const res = { all, g, floating: all.length - g.length, pieces: [], total: 0, Lo: [], Ro: [], tooBig: false };
+  budget = 0;
+  try {
+    for (const c of components(g)) { const v = evalPiece(c); res.pieces.push({ ids: c, v }); res.total += v; }
+    for (const id of g) {
+      const v = value(g.filter((x) => x !== id));
+      (S.e[id].c === "B" ? res.Lo : res.Ro).push(v);
+    }
+  } catch (err) {
+    if (!(err instanceof TooBig)) throw err;
+    res.tooBig = true;
+  }
+  return res;
+}
+
+/* ---------- state ---------- */
+function snapshot() { hist.push(JSON.stringify(S)); if (hist.length > 150) hist.shift(); }
+function undo() { if (!hist.length) return; S = JSON.parse(hist.pop()); afterChange(); }
+function save() { try { localStorage.setItem(STORE, JSON.stringify({ S, NEXT })); } catch (e) {} }
+function pruneVerts() {
+  const used = new Set();
+  for (const id in S.e) { used.add(S.e[id].a); used.add(S.e[id].b); }
+  for (const id in S.v) if (!used.has(Number(id))) delete S.v[id];
+}
+function newVert(p) { const id = NEXT++; S.v[id] = { x: Math.round(p.x), y: Math.round(p.y), g: !!p.g }; return id; }
+
+function chop(id) {
+  snapshot();
+  delete S.e[id];
+  const keep = new Set(grounded(edgeIds()));
+  for (const k of edgeIds()) if (!keep.has(k)) delete S.e[k];
+  pruneVerts();
+  hoverEdge = null;
+  afterChange();
+}
+
+/* ---------- positions ---------- */
+function build(spec) {
+  const st = { v: {}, e: {} }, at = new Map();
+  const vid = (p) => {
+    const k = p.join(",");
+    if (!at.has(k)) { const id = NEXT++; st.v[id] = { x: p[0], y: p[1], g: p[1] === GY }; at.set(k, id); }
+    return at.get(k);
+  };
+  for (const [a, b, c] of spec) { const va = vid(a), vb = vid(b); st.e[NEXT++] = { a: va, b: vb, c }; }
+  return st;
+}
+function stalk(x, colors, len = 64) {
+  const out = [];
+  [...colors].forEach((c, i) => out.push([[x, GY - i * len], [x, GY - (i + 1) * len], c]));
+  return out;
+}
+const PRESETS = {
+  scene: () => [
+    ...stalk(100, "BRB", 70),
+    [[290, GY], [290, 360], "B"], [[290, 360], [245, 290], "R"], [[290, 360], [335, 290], "B"],
+    [[335, 290], [360, 220], "R"], [[245, 290], [230, 220], "B"],
+    [[480, GY], [520, 350], "B"], [[520, 350], [560, GY], "R"], [[520, 350], [520, 270], "R"], [[520, 270], [520, 200], "B"],
+    [[690, GY], [730, 350], "R"], [[770, GY], [730, 350], "R"], [[730, 350], [730, 270], "B"], [[730, 270], [730, 200], "B"],
+  ],
+  halves: () => [...stalk(240, "BR", 80), ...stalk(420, "BR", 80), ...stalk(600, "R", 80)],
+  ladder: () => [
+    ...stalk(90, "B"), ...stalk(195, "BR"), ...stalk(300, "BRR"), ...stalk(405, "BRRR"),
+    ...stalk(510, "BRB"), ...stalk(615, "BRBB"), ...stalk(720, "RB"), ...stalk(825, "RBB"),
+  ],
+  cycles: () => [
+    [[90, GY], [230, GY], "B"], [[130, GY], [190, GY], "R"],
+    [[320, GY], [360, 360], "B"], [[360, 360], [400, GY], "B"], [[360, 360], [360, 280], "R"], [[360, 280], [360, 200], "R"],
+    [[520, GY], [520, 360], "R"], [[520, 360], [600, 360], "B"], [[600, 360], [600, GY], "R"], [[520, 360], [560, 290], "B"], [[600, 360], [560, 290], "B"],
+    [[720, GY], [760, 340], "B"], [[760, 340], [800, GY], "R"], [[760, 340], [720, 260], "R"], [[760, 340], [800, 260], "B"],
+  ],
+};
+function loadPreset(name) { snapshot(); S = build(PRESETS[name]()); afterChange(); }
+
+function addStalk(x) {
+  if (!R || R.tooBig) return;
+  const signs = signExpansion(x);
+  if (!signs.length) return;
+  const xs = Object.values(S.v).map((v) => v.x);
+  let px = null;
+  for (let c = 50; c <= 860; c += 15) if (xs.every((vx) => Math.abs(vx - c) > 50)) { px = c; break; }
+  if (px === null) px = 870;
+  const len = Math.min(64, (GY - 40) / signs.length);
+  snapshot();
+  const add = build(stalk(px, signs.map((s) => (s === "+" ? "B" : "R")).join(""), len));
+  Object.assign(S.v, add.v); Object.assign(S.e, add.e);
+  afterChange();
+}
+
+/* ---------- board rendering ---------- */
+function pathFor(e, i, m) {
+  const A = S.v[e.a], B = S.v[e.b];
+  if (A.g && B.g) {
+    const h = Math.max(36, Math.abs(B.x - A.x) * 0.45) + i * 18;
+    return `M${A.x} ${A.y}Q${(A.x + B.x) / 2} ${GY - 2 * h} ${B.x} ${B.y}`;
+  }
+  const off = (i - (m - 1) / 2) * 26;
+  if (!off) return `M${A.x} ${A.y}L${B.x} ${B.y}`;
+  const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1;
+  const cx = (A.x + B.x) / 2 - (dy / len) * off * 2, cy = (A.y + B.y) / 2 + (dx / len) * off * 2;
+  return `M${A.x} ${A.y}Q${cx} ${cy} ${B.x} ${B.y}`;
+}
+
+function render() {
+  const all = edgeIds();
+  const gset = new Set(R ? R.g : grounded(all));
+  const falling = new Set();
+  if (hoverEdge !== null && S.e[hoverEdge]) {
+    const rest = new Set(grounded(all.filter((i) => i !== hoverEdge)));
+    for (const i of gset) if (i !== hoverEdge && !rest.has(i)) falling.add(i);
+  }
+  const groups = {};
+  for (const id of all) {
+    const e = S.e[id], k = Math.min(e.a, e.b) + "-" + Math.max(e.a, e.b);
+    (groups[k] = groups[k] || []).push(id);
+  }
+  let eh = "", hh = "";
+  for (const k in groups) {
+    groups[k].forEach((id, i) => {
+      const e = S.e[id], d = pathFor(e, i, groups[k].length);
+      const cls = `edge ${e.c}${gset.has(id) ? "" : " float"}${falling.has(id) ? " falling" : ""}${id === hoverEdge ? " hot" : ""}`;
+      eh += `<path class="${cls}" d="${d}"/>`;
+      hh += `<path class="hit" data-e="${id}" d="${d}"/>`;
+    });
+  }
+  $("g-edges").innerHTML = eh;
+  $("g-hit").innerHTML = hh;
+  let vh = "";
+  for (const id in S.v) {
+    const v = S.v[id];
+    vh += v.g ? `<circle class="gdot" cx="${v.x}" cy="${v.y}" r="4.5"/>` : `<circle class="dot" cx="${v.x}" cy="${v.y}" r="5.5"/>`;
+  }
+  $("g-verts").innerHTML = vh;
+
+  let lh = "";
+  if (R && !R.tooBig) {
+    for (const p of R.pieces) {
+      let minY = Infinity, sx = 0, n = 0;
+      for (const id of p.ids) for (const vid of [S.e[id].a, S.e[id].b]) {
+        const v = S.v[vid]; minY = Math.min(minY, v.y); sx += v.x; n++;
+      }
+      const x = sx / n, y = Math.max(28, minY - 22);
+      const t = fmt(p.v);
+      const w = t.length * 9.5;
+      lh += `<circle class="cdot ${signCls(p.v)}" cx="${x - w / 2 - 9}" cy="${y - 6}" r="5.5"/><text class="lbl" x="${x - w / 2}" y="${y}">${t}</text>`;
+    }
+  }
+  $("g-labels").innerHTML = lh;
+}
+
+/* ---------- panel ---------- */
+function bigHTML(x) {
+  if (x === 0) return `<span>0</span>`;
+  const { n, d } = parts(Math.abs(x));
+  const s = x < 0 ? `<span class="sgn">${MINUS}</span>` : "";
+  if (d === 1) return `${s}<span>${n}</span>`;
+  return `${s}<span class="frac"><span class="num">${n}</span><span class="den">${d}</span></span>`;
+}
+function panel() {
+  const empty = !R.g.length;
+  $("warn").hidden = !R.tooBig;
+  if (R.tooBig) {
+    $("warn").textContent = `Search passed ${LIMIT.toLocaleString()} positions without finishing. Remove some edges or split a large piece into smaller ones.`;
+    ["bigval", "meta", "outcome", "opts", "optsnote", "comps", "sum", "sx"].forEach((id) => ($(id).innerHTML = ""));
+    $("bigval").textContent = "?";
+    $("bigval").className = "bigval";
+    $("addpos").disabled = $("addneg").disabled = true;
+    return;
+  }
+  const v = R.total;
+  const bv = $("bigval");
+  bv.className = "bigval " + signCls(v);
+  bv.innerHTML = bigHTML(v);
+  const sx = signExpansion(v);
+  const { n, k } = parts(Math.abs(v));
+  const day = `born on day ${sx.length}`;
+  $("meta").innerHTML = k > 0
+    ? `<span class="m">${v < 0 ? MINUS : ""}${n}/2<sup>${k}</sup></span> · ${v < 0 ? MINUS : ""}${Math.abs(v).toFixed(k)} · ${day}`
+    : (v === 0 ? `${day}` : `integer · ${day}`);
+  const oc = v > 0 ? ["pos", "Blue wins", "moving first or second."]
+    : v < 0 ? ["neg", "Red wins", "moving first or second."]
+    : ["zero", "Second player wins", empty ? "The board is empty, so whoever moves first has no move." : "Whoever moves first loses."];
+  $("outcome").innerHTML = `<span class="chip ${oc[0]}">${oc[1]}</span><span>${oc[2]}</span>`;
+
+  const uniq = (a, dir) => [...new Set(a)].sort((x, y) => dir * (x - y));
+  const L = uniq(R.Lo, -1), Rr = uniq(R.Ro, 1);
+  $("opts").innerHTML = `{ <span class="L">${L.map(fmt).join(", ")}</span> | <span class="R">${Rr.map(fmt).join(", ")}</span> }`;
+  const lo = L.length ? L[0] : -Infinity, hi = Rr.length ? Rr[0] : Infinity;
+  $("optsnote").textContent = empty
+    ? "No moves for either player, so this is { | } = 0."
+    : `Blue's best move leads to ${fmt(lo)}, Red's to ${fmt(hi)}. The simplest number strictly between them is ${fmt(v)}.`;
+
+  $("comps").innerHTML = R.pieces.length
+    ? R.pieces.map((p) => `<li><span class="d ${signCls(p.v)}"></span><span class="v">${fmt(p.v)}</span><span class="n">${p.ids.length} edge${p.ids.length > 1 ? "s" : ""}</span></li>`).join("")
+    : `<li class="n">Nothing touches the ground yet.</li>`;
+  $("sum").innerHTML = R.pieces.length > 1
+    ? R.pieces.map((p, i) => (i === 0 ? fmt(p.v) : p.v < 0 ? ` ${MINUS} ${fmt(-p.v)}` : ` + ${fmt(p.v)}`)).join("") + ` = ${fmt(v)}`
+    : "";
+  $("floatnote").hidden = !R.floating;
+  $("floatnote").textContent = `${R.floating} edge${R.floating > 1 ? "s" : ""} not connected to the ground ${R.floating > 1 ? "are" : "is"} drawn dashed and left out of the game.`;
+
+  $("sx").innerHTML = sx.length
+    ? sx.map((s) => `<span class="${s === "+" ? "B" : "R"}">${s === "+" ? "+" : MINUS}</span>`).join("")
+    : `<span class="empty">empty (the zero game)</span>`;
+  $("addpos").disabled = $("addneg").disabled = v === 0;
+}
+
+function afterChange() { save(); R = evaluate(); render(); panel(); }
+
+/* ---------- input ---------- */
+const HINTS = {
+  draw: "Drag between points to draw an edge. Start or end on the hatched ground to root it; drag from an existing dot to extend it.",
+  chop: "Click an edge to cut it. Pieces left hanging fall off. Hover to see the value after the cut and which edges would fall.",
+  move: "Drag a dot to reposition it. Dots on the ground slide along the ground. Values don't change.",
+};
+function setMode(m) {
+  mode = m; hoverEdge = null; $("tip").setAttribute("visibility", "hidden");
+  $("board").dataset.mode = m;
+  document.querySelectorAll("[data-mode]").forEach((b) => b.tagName === "BUTTON" && b.setAttribute("aria-pressed", b.dataset.mode === m));
+  $("hint").textContent = HINTS[m];
+  render();
+}
+function setColor(c) {
+  color = c;
+  document.querySelectorAll("[data-color]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.color === c));
+}
+
+function pt(ev) {
+  const r = svg.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) * W / r.width, y: (ev.clientY - r.top) * H / r.height, s: W / r.width };
+}
+function nearest(p, exclude) {
+  let best = null, bd = Math.max(16, 22 * p.s);
+  for (const id in S.v) {
+    if (Number(id) === exclude) continue;
+    const v = S.v[id], d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d < bd) { bd = d; best = Number(id); }
+  }
+  return best;
+}
+function resolve(p, exclude) {
+  const id = nearest(p, exclude);
+  if (id !== null) return { id, x: S.v[id].x, y: S.v[id].y, snap: true };
+  const x = Math.min(W - 8, Math.max(8, p.x));
+  if (p.y > GY - Math.max(14, 18 * p.s)) return { x, y: GY, g: true, snap: true };
+  return { x, y: Math.max(8, p.y) };
+}
+
+svg.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  const p = pt(ev);
+  if (mode === "chop") { const t = ev.target.closest(".hit"); if (t) chop(Number(t.dataset.e)); return; }
+  if (mode === "move") {
+    const id = nearest(p);
+    if (id !== null) { snapshot(); drag = { v: id }; svg.setPointerCapture(ev.pointerId); }
+    return;
+  }
+  drag = { start: resolve(p, null) };
+  svg.setPointerCapture(ev.pointerId);
+});
+
+svg.addEventListener("pointermove", (ev) => {
+  const p = pt(ev);
+  if (drag && drag.v !== undefined) {
+    const v = S.v[drag.v];
+    v.x = Math.round(Math.min(W - 8, Math.max(8, p.x)));
+    if (!v.g) v.y = Math.round(Math.min(GY - 10, Math.max(8, p.y)));
+    render();
+    return;
+  }
+  if (drag && drag.start) {
+    const a = drag.start, b = resolve(p, a.id);
+    $("g-preview").innerHTML =
+      `<path class="preview ${color}" d="M${a.x} ${a.y}L${b.x} ${b.y}"/>` +
+      (b.snap ? `<circle class="snapring" cx="${b.x}" cy="${b.y}" r="10"/>` : "") +
+      (a.snap ? `<circle class="snapring" cx="${a.x}" cy="${a.y}" r="10"/>` : "");
+    return;
+  }
+  if (mode === "chop") {
+    const t = ev.target.closest(".hit");
+    const id = t ? Number(t.dataset.e) : null;
+    const tip = $("tip");
+    if (id !== hoverEdge) { hoverEdge = id; render(); }
+    if (id !== null && R && !R.tooBig && R.g.includes(id)) {
+      let v; try { budget = 0; v = value(R.g.filter((x) => x !== id)); } catch (e) { v = NaN; }
+      tip.textContent = `${S.e[id].c === "B" ? "Blue" : "Red"} cuts → ${fmt(v)}`;
+      const tx = p.x > W - 200 ? p.x - 190 : p.x + 16;
+      tip.setAttribute("x", tx); tip.setAttribute("y", Math.max(22, p.y - 14));
+      tip.setAttribute("visibility", "visible");
+    } else tip.setAttribute("visibility", "hidden");
+  }
+});
+
+function endDrag(ev) {
+  if (!drag) return;
+  if (drag.v !== undefined) { drag = null; afterChange(); return; }
+  const a = drag.start, b = resolve(pt(ev), a.id);
+  drag = null;
+  $("g-preview").innerHTML = "";
+  if (ev.type === "pointercancel") return;
+  if (Math.hypot(a.x - b.x, a.y - b.y) < 14) return;
+  if (a.id !== undefined && a.id === b.id) return;
+  snapshot();
+  const va = a.id !== undefined ? a.id : newVert(a);
+  const vb = b.id !== undefined ? b.id : newVert(b);
+  S.e[NEXT++] = { a: va, b: vb, c: color };
+  afterChange();
+}
+svg.addEventListener("pointerup", endDrag);
+svg.addEventListener("pointercancel", endDrag);
+svg.addEventListener("pointerleave", () => {
+  if (mode === "chop" && hoverEdge !== null) { hoverEdge = null; $("tip").setAttribute("visibility", "hidden"); render(); }
+});
+
+document.querySelectorAll("button[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+document.querySelectorAll("button[data-color]").forEach((b) => b.addEventListener("click", () => setColor(b.dataset.color)));
+$("undo").addEventListener("click", undo);
+$("clear").addEventListener("click", () => { if (!edgeIds().length) return; snapshot(); S = { v: {}, e: {} }; afterChange(); });
+$("preset").addEventListener("change", (e) => { if (e.target.value) loadPreset(e.target.value); e.target.value = ""; });
+$("addpos").addEventListener("click", () => addStalk(R.total));
+$("addneg").addEventListener("click", () => addStalk(-R.total));
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "b") setColor("B"); else if (k === "r") setColor("R");
+  else if (k === "d") setMode("draw"); else if (k === "c") setMode("chop"); else if (k === "m") setMode("move");
+});
+
+/* ---------- boot ---------- */
+(function boot() {
+  let loaded = false;
+  try {
+    const raw = localStorage.getItem(STORE);
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (d && d.S && d.S.v && d.S.e) { S = d.S; NEXT = Math.max(d.NEXT || 1, ...Object.keys(S.v).map(Number), ...Object.keys(S.e).map(Number), 0) + 1; loaded = true; }
+    }
+  } catch (e) {}
+  if (!loaded) S = build(PRESETS.scene());
+  setMode("draw");
+  afterChange();
+})();
+</script>
+
+</html>
